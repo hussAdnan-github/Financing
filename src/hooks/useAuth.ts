@@ -19,8 +19,20 @@ const roleLabels: Record<UserRole, string> = {
   manager: "مدير",
 };
 
+// الحسابات التجريبية للمعاينة السريعة
+const DEMO_USERS: Record<string, AuthUser> = {
+  "faisal@company.sa": { id: "demo-1", name: "فيصل الزهراني", email: "faisal@company.sa", role: "manager", initials: "فز" },
+  "ahmed@company.sa": { id: "demo-2", name: "أحمد الشمري", email: "ahmed@company.sa", role: "supervisor", initials: "أش" },
+  "mona@company.sa": { id: "demo-3", name: "منى الزهراني", email: "mona@company.sa", role: "auditor", initials: "مز" },
+  "sara@company.sa": { id: "demo-4", name: "سارة المطيري", email: "sara@company.sa", role: "employee", initials: "سم" },
+};
+
 export function useAuth() {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    // محاولة استعادة الجلسة التجريبية من التخزين المحلي
+    const saved = localStorage.getItem("demo_session");
+    return saved ? JSON.parse(saved) : null;
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +42,12 @@ export function useAuth() {
 
     const loadSession = async () => {
       try {
+        // إذا كان هناك مستخدم تجريبي بالفعل، لا نحمل جلسة سوبابيز
+        if (user?.id.startsWith("demo-")) {
+          setIsLoading(false);
+          return;
+        }
+
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user && mounted) {
           await fetchProfile(session.user.id, mounted);
@@ -50,6 +68,7 @@ export function useAuth() {
           await fetchProfile(session.user.id, mounted);
         } else if (event === "SIGNED_OUT") {
           setUser(null);
+          localStorage.removeItem("demo_session");
         }
         setIsLoading(false);
       }
@@ -89,6 +108,15 @@ export function useAuth() {
     setIsLoading(true);
     setError(null);
 
+    // التحقق من الحسابات التجريبية أولاً
+    if (DEMO_USERS[email] && password === "123456") {
+      const demoUser = DEMO_USERS[email];
+      setUser(demoUser);
+      localStorage.setItem("demo_session", JSON.stringify(demoUser));
+      setIsLoading(false);
+      return true;
+    }
+
     try {
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
@@ -101,7 +129,7 @@ export function useAuth() {
         return false;
       }
 
-      // تحديث last_active
+      // تحديث last_active (للحسابات الحقيقية فقط)
       await supabase
         .from("profiles")
         .update({ last_active: new Date().toISOString() })
@@ -120,6 +148,7 @@ export function useAuth() {
     await supabase.auth.signOut();
     setUser(null);
     setError(null);
+    localStorage.removeItem("demo_session");
   }, []);
 
   const { checkPermission } = usePermissions();
